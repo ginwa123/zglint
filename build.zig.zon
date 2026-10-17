@@ -1,0 +1,18 @@
+.{
+    .name = .zginlint,
+    .version = "0.0.0",
+    // Generated here, at the package's creation — do not change it, and
+    // do not reuse it: it is this package's identity, not a checksum.
+    .fingerprint = 0x85bafcfca60746d2,
+    .minimum_zig_version = "0.16.0",
+    // Zero dependencies — std only, so a consumer links the linter without
+    // inheriting a package graph (pabrik, the first consumer, pins this repo
+    // by URL + hash and calls `zig build zginlint:check`).
+    .dependencies = .{},
+    .paths = .{
+        "build.zig",
+        "build.zig.zon",
+        "src",
+        "README.md",
+    },
+}

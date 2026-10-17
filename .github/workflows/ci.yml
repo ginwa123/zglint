@@ -1,0 +1,51 @@
+# CI for zginlint. This repository is the linter's home since it was moved
+# out of pabrik's monorepo (pabrik/src/modules/zginlint/), and this workflow
+# is the ONLY place its unit tests run: a consumer's build never runs a
+# dependency's test blocks, so pabrik's CI can no longer carry them.
+#
+# Three steps, one per contract — the CLI builds, the unit tests pass, and
+# the linter reports zero findings on its own source. All three run on every
+# platform pabrik builds for (ci-backend.yml), because that is the set the
+# tests were green on before the move and the set a regression would reach.
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+env:
+  ZIG_VERSION: 0.16.0
+
+jobs:
+  test:
+    name: test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    # The linter is std-only and compiles in under a second with a warm
+    # cache; the ceiling is for a cold cache plus the runner's own setup. A
+    # wedged runner must not hold a machine for the default six hours.
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, macos-15, windows-2022]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Zig ${{ env.ZIG_VERSION }}
+        uses: mlugg/setup-zig@v2
+        with:
+          version: ${{ env.ZIG_VERSION }}
+
+      - name: Build (zig-out/bin/zginlint)
+        run: zig build --summary all
+
+      - name: Unit tests
+        run: zig build test --summary all
+
+      - name: Self-lint (zero findings)
+        # The same gate this linter is: `zig build lint` runs the freshly
+        # built CLI over `src` and `build.zig`, and there is no baseline and
+        # no suppression to hide a finding behind.
+        run: zig build lint --summary all
