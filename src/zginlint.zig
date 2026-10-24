@@ -10,6 +10,7 @@ const options_mod = @import("options.zig");
 const rule = @import("rule.zig");
 const max_comment_lines = @import("rules/max_comment_lines.zig");
 const no_catch_unreachable = @import("rules/no_catch_unreachable.zig");
+const no_std_log_warn = @import("rules/no_std_log_warn.zig");
 
 pub const Diagnostic = diagnostic.Diagnostic;
 pub const Options = options_mod.Options;
@@ -19,6 +20,7 @@ pub const defaults = options_mod.defaults;
 pub const rules = [_]rule.Rule{
     max_comment_lines.declaration,
     no_catch_unreachable.declaration,
+    no_std_log_warn.declaration,
 };
 
 /// Every diagnostic a single file produced, with the path it came from.

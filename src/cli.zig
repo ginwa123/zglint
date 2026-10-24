@@ -12,7 +12,8 @@ pub const exit_usage: u8 = 2;
 
 pub const usage =
     \\zginlint — a linter for Zig source.
-    \\Rules: zginlint/max-comment-lines, zginlint/no-catch-unreachable.
+    \\Rules: zginlint/max-comment-lines, zginlint/no-catch-unreachable,
+\\       zginlint/no-std-log-warn.
     \\
     \\usage: zginlint [options] <path>...
     \\
