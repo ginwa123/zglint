@@ -75,6 +75,32 @@ Debug/ReleaseSafe and is **undefined behaviour** in ReleaseFast.
   hit; `catch @panic("...")` is the sanctioned form and is not one either.
 - It takes no options, and its fingerprint is `-`.
 
+### `zginlint/no-std-log-warn`
+
+A bare `warn` through `std.log` is banned; warn through the project's Logger
+instead. `std.log` writes to the test runner's stderr by definition, and the
+runner relays **any** stderr byte from a **passing** test as a block that has
+the exact shape of a failure — same header, same `failed command:` tail, but
+without the failing test's name or counts. A green suite then reads as a
+broken one. Measured on `pabrik`: exit 0, 4987/4991 tests passed, five such
+blocks, and the next agent spent its first turn hunting a failure that did not
+exist.
+
+- The finding is reported at the `std` that starts the call, with its column.
+- `warn` only: `std.log.info`/`.debug` are already silent under the runner
+  (`testing.log_level` is `.warn`), and `.err` fails the test rather than
+  printing a passing block.
+- A word boundary is required after `warn`, so `std.log.warning` is not a hit.
+- The sanctioned form is the global Logger, which is silent in a test because
+  no test installs one:
+  `if (loggermod.getGlobal()) |logger| logger.warnFmt("…", .{…});`
+- The scan is over **raw bytes**, so a commented-out site counts.
+- It takes no options, and its fingerprint is `-`.
+
+A tree that still carries the old call adopts this rule only after migrating
+those sites; `pabrik` counts them at 153 across 58 files, so the rule lands
+here first and its pin moves when that migration does.
+
 ## No baseline, no suppression
 
 The gate asks for **zero**. There is no pin file, no per-file ceiling, no
