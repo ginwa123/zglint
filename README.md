@@ -101,6 +101,29 @@ A tree that still carries the old call adopts this rule only after migrating
 those sites; `pabrik` counts them at 153 across 58 files, so the rule lands
 here first and its pin moves when that migration does.
 
+### `zginlint/no-std-debug-print`
+
+A bare print through `std.debug` is banned in production code; print through
+the project's Logger instead. The call goes straight to stderr: no level, no
+timestamp, nothing in the log file, and inside the test runner its bytes are
+relayed for a **passing** test as a block shaped exactly like a failure.
+
+- The finding is reported at the `std` that starts the call, with its column.
+- Sanctioned forms: `loggermod.debugPrint(…)` for a raw console line (the
+  Logger's own raw print, silent in a test), or a leveled
+  `logger.infoFmt` / `warnFmt` / `errFmt` for a real log line.
+- A site inside a `test` block is **exempt**: a failing test's diagnostic has
+  to reach stderr, and that bypass is the point there. The block is found the
+  way a human reads it — by walking up to the nearest line that starts at
+  column 0 (the `test` that opens it, or the `}` that closed the one above).
+- A site inside `fn debugPrint` is **exempt**: that function IS the raw print
+  every other site is told to use.
+- A **fixture diagnostic** is exempt: a message whose literal opens with `!!`
+  (optionally after a newline), the marker `check-zig-test-output-clean.sh`
+  already treats as a test-only failure line.
+- The scan is over **raw bytes**, so a commented-out site counts.
+- It takes no options, and its fingerprint is `-`.
+
 ## No baseline, no suppression
 
 The gate asks for **zero**. There is no pin file, no per-file ceiling, no
@@ -127,6 +150,7 @@ commit message or this README — not in a suppression comment.
 | `src/comment_scan.zig` | the lexer: source bytes in, comment lines and blocks out |
 | `src/rules/max_comment_lines.zig` | the comment-block ceiling |
 | `src/rules/no_catch_unreachable.zig` | the banned error-handling pair |
+| `src/rules/no_std_debug_print.zig` | the raw print `std.debug` in production code |
 | `src/diagnostic.zig` | a finding and the message its rule wrote |
 | `src/rule.zig` | what a rule is: id, options fingerprint, check |
 | `src/options.zig` | the options every rule is read with |
