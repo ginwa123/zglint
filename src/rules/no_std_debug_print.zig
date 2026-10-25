@@ -43,6 +43,7 @@ pub fn check(
         if (search_from < source.len and isWordByte(source[search_from])) continue;
         if (insideTestBlock(source, found)) continue;
         if (insideRawPrintHelper(source, found)) continue;
+        if (isFixtureDiagnostic(source, found)) continue;
 
         const position = positionOf(source, found);
         const message = try std.fmt.allocPrint(allocator, message_fmt, .{"."});
@@ -88,11 +89,26 @@ fn insideRawPrintHelper(source: []const u8, index: usize) bool {
         while (name_at < source.len and
             (source[name_at] == ' ' or source[name_at] == '\t' or source[name_at] == '\n')) name_at += 1;
         var name_end = name_at;
-        while (name_end < source.len and isNameByte(source[name_end])) name_end += 1;
+        while (name_end < source.len and isWordByte(source[name_end])) name_end += 1;
         if (name_end > name_at and std.mem.eql(u8, source[name_at..name_end], raw_print_fn)) return true;
         cursor = fn_at;
     }
     return false;
+}
+
+/// Is this site one of the tree's fixture diagnostics? The convention is a
+/// message that opens with `!!` (optionally after a newline) — the marker
+/// `check-zig-test-output-clean.sh` already treats as a test-only failure line.
+fn isFixtureDiagnostic(source: []const u8, index: usize) bool {
+    var cursor = index + banned.len;
+    while (cursor < source.len and (source[cursor] == ' ' or source[cursor] == '\t')) cursor += 1;
+    if (cursor >= source.len or source[cursor] != '(') return false;
+    cursor += 1;
+    while (cursor < source.len and (source[cursor] == ' ' or source[cursor] == '\t')) cursor += 1;
+    if (cursor >= source.len or source[cursor] != '"') return false;
+    cursor += 1;
+    while (cursor < source.len and (source[cursor] == '\\' or source[cursor] == 'n')) cursor += 1;
+    return std.mem.startsWith(u8, source[cursor..], "!!");
 }
 
 const Position = struct { line: u32, column: u32 };
@@ -110,10 +126,6 @@ fn positionOf(source: []const u8, index: usize) Position {
 
 /// The `\b` the ripgrep lint has after the word, without a regex engine.
 fn isWordByte(byte: u8) bool {
-    return std.ascii.isAlphanumeric(byte) or byte == '_';
-}
-
-fn isNameByte(byte: u8) bool {
     return std.ascii.isAlphanumeric(byte) or byte == '_';
 }
 
@@ -236,6 +248,24 @@ test "no-std-debug-print: a longer identifier after the token is not the call" {
 
 test "no-std-debug-print: a commented-out site is reported" {
     const source = try std.fmt.allocPrint(testing.allocator, "// old: {s}(\"boom\", .{{}});\n", .{banned});
+    defer testing.allocator.free(source);
+    var found = try checkOwned(source);
+    defer deinitFound(&found);
+    try testing.expectEqual(@as(usize, 1), found.items.len);
+}
+
+test "no-std-debug-print: a fixture diagnostic that opens with !! is exempt" {
+    const source = try std.fmt.allocPrint(testing.allocator,
+        "const a = {s}(\"\\n!! fixture git is dirty !!\\n\", .{{}});\n",
+        .{banned});
+    defer testing.allocator.free(source);
+    var found = try checkOwned(source);
+    defer deinitFound(&found);
+    try testing.expectEqual(@as(usize, 0), found.items.len);
+}
+
+test "no-std-debug-print: a message that merely contains !! is still reported" {
+    const source = try std.fmt.allocPrint(testing.allocator, "const a = {s}(\"boom !!\", .{{}});\n", .{banned});
     defer testing.allocator.free(source);
     var found = try checkOwned(source);
     defer deinitFound(&found);

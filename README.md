@@ -118,6 +118,9 @@ relayed for a **passing** test as a block shaped exactly like a failure.
   column 0 (the `test` that opens it, or the `}` that closed the one above).
 - A site inside `fn debugPrint` is **exempt**: that function IS the raw print
   every other site is told to use.
+- A **fixture diagnostic** is exempt: a message whose literal opens with `!!`
+  (optionally after a newline), the marker `check-zig-test-output-clean.sh`
+  already treats as a test-only failure line.
 - The scan is over **raw bytes**, so a commented-out site counts.
 - It takes no options, and its fingerprint is `-`.
 
