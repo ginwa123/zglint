@@ -17,6 +17,7 @@ consumer, pinning it by URL + hash in `build.zig.zon`.
 zig build                                 # build zig-out/bin/zginlint
 zig-out/bin/zginlint src                  # report every finding, exit 1 if any
 zig-out/bin/zginlint --max-comment-lines 2 src
+zig-out/bin/zginlint --no-anyopaque-paths src/core --no-anyopaque-allow src/core/erased.zig src
 zig build test                            # the linter's own unit tests
 zig build lint                            # the gate this repo's CI runs
 ```
@@ -101,6 +102,43 @@ A tree that still carries the old call adopts this rule only after migrating
 those sites; `pabrik` counts them at 153 across 58 files, so the rule lands
 here first and its pin moves when that migration does.
 
+### `zginlint/no-anyopaque`
+
+The `anyopaque` token is banned **inside the paths you name**, and nowhere
+else. A UI engine's `src/core` holds typed callbacks; an ad-hoc
+`?*anyopaque` pair — a function pointer plus its context — erases the type
+that layer exists to keep, and nothing downstream can put it back. The ban
+is **narrow on purpose**: one audited erasure file is the design, not a
+compromise, so the rule ships with an allow list instead of a verdict.
+
+- `--no-anyopaque-paths src/core,src/render` bans the token in those paths
+  and everything under them. **Unset means the rule is off**: with no path
+  in scope there is nothing to report, so a tree that passes no flag lints
+  exactly as it did before this rule existed.
+- An entry matches on a directory boundary only — the path is the entry,
+  sits under it, or carries it whole between slashes. A relative
+  `src/core/props.zig` and an absolute `/Users/x/proj/src/core/props.zig`
+  both match `src/core`; a bare file name never matches a directory, and
+  `src/core` never matches `src/corex`.
+- `--no-anyopaque-allow src/core/erased.zig` exempts a file from the ban,
+  with the same matching rules. That is the point of the flag rather than a
+  hole in the rule: erasure stays legal exactly where someone audited it,
+  and the exemption lives in the build script where a reviewer sees it,
+  instead of in a comment inside the source.
+- One finding per occurrence, at the token's line and column:
+  ``src/core/props.zig:12:24: error `anyopaque` is banned in this path: an
+  erased pointer gives up the type this layer exists to keep. …
+  (zginlint/no-anyopaque)``.
+- A word boundary is required on both sides, so `anyopaqueCtx` and
+  `my_anyopaque` are longer identifiers and are not hits. The scan is over
+  **raw bytes**, so a commented-out site counts.
+- The fingerprint is `-` while both lists are empty, and
+  `paths=src/core;allow=src/core/erased.zig` once they are set.
+
+This is the rule that made the rule API path-aware: `Rule.check` takes the
+display path the walker reported, second, before the source. A path-blind
+rule ignores it; this one cannot.
+
 ## No baseline, no suppression
 
 The gate asks for **zero**. There is no pin file, no per-file ceiling, no
@@ -126,7 +164,9 @@ commit message or this README — not in a suppression comment.
 |---|---|
 | `src/comment_scan.zig` | the lexer: source bytes in, comment lines and blocks out |
 | `src/rules/max_comment_lines.zig` | the comment-block ceiling |
+| `src/rules/no_anyopaque.zig` | the path-scoped token ban |
 | `src/rules/no_catch_unreachable.zig` | the banned error-handling pair |
+| `src/rules/no_std_log_warn.zig` | the banned bare `warn` through `std.log` |
 | `src/diagnostic.zig` | a finding and the message its rule wrote |
 | `src/rule.zig` | what a rule is: id, options fingerprint, check |
 | `src/options.zig` | the options every rule is read with |

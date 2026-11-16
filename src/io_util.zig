@@ -15,7 +15,6 @@ pub fn readFileAlloc(allocator: std.mem.Allocator, io: std.Io, path: []const u8)
     return reader.interface.allocRemaining(allocator, .unlimited);
 }
 
-
 /// `dir/name` with a forward slash on every platform, so a report reads the
 /// same everywhere.
 pub fn join(allocator: std.mem.Allocator, dir: []const u8, name: []const u8) ![]u8 {

@@ -31,11 +31,13 @@ pub fn fingerprint(allocator: std.mem.Allocator, options: rule.Options) ![]u8 {
 /// Append one diagnostic per site, at the `std` that starts it.
 pub fn check(
     allocator: std.mem.Allocator,
+    path: []const u8,
     source: []const u8,
     options: rule.Options,
     out: *std.ArrayList(rule.Diagnostic),
 ) anyerror!void {
     _ = options;
+    _ = path;
     var search_from: usize = 0;
     while (std.mem.indexOfPos(u8, source, search_from, banned)) |found| {
         search_from = found + banned.len;
@@ -86,7 +88,7 @@ fn checkOwned(source: []const u8) !std.ArrayList(rule.Diagnostic) {
         for (found.items) |*item| item.deinit(testing.allocator);
         found.deinit(testing.allocator);
     }
-    try check(testing.allocator, source, .{}, &found);
+    try check(testing.allocator, "src/a.zig", source, .{}, &found);
     return found;
 }
 

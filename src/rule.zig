@@ -15,9 +15,12 @@ pub const Rule = struct {
     /// The options this rule was read with, as a short string (`max=3`, or
     /// `-` for a rule with none).
     fingerprint: *const fn (allocator: std.mem.Allocator, options: Options) anyerror![]u8,
-    /// Append one diagnostic per finding in `source`.
+    /// Append one diagnostic per finding in `source`. `path` is the display
+    /// path the walker reported — relative when the CLI argument was — and a
+    /// path-blind rule ignores it.
     check: *const fn (
         allocator: std.mem.Allocator,
+        path: []const u8,
         source: []const u8,
         options: Options,
         out: *std.ArrayList(Diagnostic),

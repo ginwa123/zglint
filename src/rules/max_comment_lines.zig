@@ -21,10 +21,12 @@ pub fn fingerprint(allocator: std.mem.Allocator, options: rule.Options) ![]u8 {
 /// Append one diagnostic per comment block longer than the ceiling.
 pub fn check(
     allocator: std.mem.Allocator,
+    path: []const u8,
     source: []const u8,
     options: rule.Options,
     out: *std.ArrayList(rule.Diagnostic),
 ) anyerror!void {
+    _ = path;
     const blocks = try comment_scan.commentBlocks(allocator, source);
     defer allocator.free(blocks);
     for (blocks) |block| {
@@ -51,7 +53,7 @@ fn expectReportedLines(expected: []const u32, source: []const u8) !void {
         for (found.items) |*item| item.deinit(testing.allocator);
         found.deinit(testing.allocator);
     }
-    try check(testing.allocator, source, .{}, &found);
+    try check(testing.allocator, "src/a.zig", source, .{}, &found);
     try testing.expectEqual(expected.len, found.items.len);
     for (expected, found.items) |line, got| try testing.expectEqual(line, got.line);
 }
@@ -78,7 +80,7 @@ test "max-comment-lines: the ceiling is configurable" {
         for (found.items) |*item| item.deinit(testing.allocator);
         found.deinit(testing.allocator);
     }
-    try check(testing.allocator, "// one\n// two\n", .{ .max_comment_lines = 1 }, &found);
+    try check(testing.allocator, "src/a.zig", "// one\n// two\n", .{ .max_comment_lines = 1 }, &found);
     try testing.expectEqual(@as(usize, 1), found.items.len);
     try testing.expectEqualStrings("Comment block has 2 lines; max is 1", found.items[0].message);
 }
@@ -100,7 +102,7 @@ test "max-comment-lines: a diagnostic names its rule" {
         for (found.items) |*item| item.deinit(testing.allocator);
         found.deinit(testing.allocator);
     }
-    try check(testing.allocator, "// one\n// two\n// three\n// four\n", .{}, &found);
+    try check(testing.allocator, "src/a.zig", "// one\n// two\n// three\n// four\n", .{}, &found);
     try testing.expectEqualStrings("zginlint/max-comment-lines", found.items[0].rule_id);
     try testing.expectEqual(@as(u32, 1), found.items[0].column);
 }
