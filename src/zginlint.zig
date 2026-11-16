@@ -9,7 +9,6 @@ const io_util = @import("io_util.zig");
 const options_mod = @import("options.zig");
 const rule = @import("rule.zig");
 const max_comment_lines = @import("rules/max_comment_lines.zig");
-const no_anyopaque = @import("rules/no_anyopaque.zig");
 const no_catch_unreachable = @import("rules/no_catch_unreachable.zig");
 const no_std_log_warn = @import("rules/no_std_log_warn.zig");
 
@@ -22,7 +21,6 @@ pub const rules = [_]rule.Rule{
     max_comment_lines.declaration,
     no_catch_unreachable.declaration,
     no_std_log_warn.declaration,
-    no_anyopaque.declaration,
 };
 
 /// Every diagnostic a single file produced, with the path it came from.
@@ -45,20 +43,14 @@ pub fn deinitFindings(allocator: std.mem.Allocator, reports: []FileFindings) voi
 }
 
 /// Lint source text with every rule. Diagnostics come back in source order,
-/// whatever order the rules ran in. `path` is the display path the walker
-/// reported, and the only way a rule can know which file it is reading.
-pub fn lintSource(
-    allocator: std.mem.Allocator,
-    path: []const u8,
-    source: []const u8,
-    options: Options,
-) ![]Diagnostic {
+/// whatever order the rules ran in.
+pub fn lintSource(allocator: std.mem.Allocator, source: []const u8, options: Options) ![]Diagnostic {
     var found: std.ArrayList(Diagnostic) = .empty;
     errdefer {
         for (found.items) |*item| item.deinit(allocator);
         found.deinit(allocator);
     }
-    for (rules) |declaration| try declaration.check(allocator, path, source, options, &found);
+    for (rules) |declaration| try declaration.check(allocator, source, options, &found);
     std.mem.sort(Diagnostic, found.items, {}, byPosition);
     return found.toOwnedSlice(allocator);
 }
@@ -224,7 +216,7 @@ fn appendFindings(
     options: Options,
     out: *std.ArrayList(FileFindings),
 ) !void {
-    const found = try lintSource(allocator, path, source, options);
+    const found = try lintSource(allocator, source, options);
     if (found.len == 0) {
         allocator.free(found);
         allocator.free(path);
@@ -281,7 +273,7 @@ fn freeDiagnostics(diagnostics: []Diagnostic) void {
 }
 
 test "zginlint: lintSource reports the long block of a source string" {
-    const found = try lintSource(testing.allocator, "src/a.zig", "// a\n// b\n// c\n// d\n", .{});
+    const found = try lintSource(testing.allocator, "// a\n// b\n// c\n// d\n", .{});
     defer freeDiagnostics(found);
     try testing.expectEqual(@as(usize, 1), found.len);
     try testing.expectEqual(@as(u32, 1), found[0].line);
@@ -347,7 +339,7 @@ test "zginlint: a single file path lints that file" {
 }
 
 test "zginlint: the ceiling reaches the rule through Options" {
-    const found = try lintSource(testing.allocator, "src/a.zig", "// a\n// b\n", .{ .max_comment_lines = 1 });
+    const found = try lintSource(testing.allocator, "// a\n// b\n", .{ .max_comment_lines = 1 });
     defer freeDiagnostics(found);
     try testing.expectEqual(@as(usize, 1), found.len);
     try testing.expect(std.mem.indexOf(u8, found[0].message, "max is 1") != null);
@@ -355,7 +347,7 @@ test "zginlint: the ceiling reaches the rule through Options" {
 
 test "zginlint: every rule runs on the same source" {
     const source = "// one\n// two\n// three\n// four\nconst x = g() catch" ++ " " ++ "unreachable;\n";
-    const found = try lintSource(testing.allocator, "src/a.zig", source, .{});
+    const found = try lintSource(testing.allocator, source, .{});
     defer freeDiagnostics(found);
 
     try testing.expectEqual(@as(usize, 2), found.len);
@@ -365,29 +357,13 @@ test "zginlint: every rule runs on the same source" {
 
 test "zginlint: diagnostics come back in source order, not rule order" {
     const source = "const x = g() catch" ++ " " ++ "unreachable;\n// a\n// b\n// c\n// d\n";
-    const found = try lintSource(testing.allocator, "src/a.zig", source, .{});
+    const found = try lintSource(testing.allocator, source, .{});
     defer freeDiagnostics(found);
 
     try testing.expectEqual(@as(usize, 2), found.len);
     try testing.expectEqualStrings("zginlint/no-catch-unreachable", found[0].rule_id);
     try testing.expectEqual(@as(u32, 1), found[0].line);
     try testing.expectEqual(@as(u32, 2), found[1].line);
-}
-
-test "zginlint: the path reaches a path-scoped rule" {
-    const token = "any" ++ "opaque";
-    const source = try std.fmt.allocPrint(testing.allocator, "pub const Ctx = ?*{s};\n", .{token});
-    defer testing.allocator.free(source);
-    const options: Options = .{ .no_anyopaque_paths = &.{"src/core"} };
-
-    const in_core = try lintSource(testing.allocator, "src/core/x.zig", source, options);
-    defer freeDiagnostics(in_core);
-    try testing.expectEqual(@as(usize, 1), in_core.len);
-    try testing.expectEqualStrings("zginlint/no-anyopaque", in_core[0].rule_id);
-
-    const in_app = try lintSource(testing.allocator, "src/app/x.zig", source, options);
-    defer freeDiagnostics(in_app);
-    try testing.expectEqual(@as(usize, 0), in_app.len);
 }
 
 test "zginlint: a missing path is an error, not an empty report" {
@@ -417,8 +393,6 @@ test "zginlint: fingerprints cover every rule and carry their options" {
     try testing.expectEqualStrings("max=2", prints[0].text);
     try testing.expectEqualStrings("zginlint/no-catch-unreachable", prints[1].rule_id);
     try testing.expectEqualStrings(rule.no_options, prints[1].text);
-    try testing.expectEqualStrings("zginlint/no-anyopaque", prints[3].rule_id);
-    try testing.expectEqualStrings(rule.no_options, prints[3].text);
 }
 
 test "zginlint: comment_scan is reachable from the library root" {

@@ -13,7 +13,7 @@ pub const exit_usage: u8 = 2;
 pub const usage =
     \\zginlint — a linter for Zig source.
     \\Rules: zginlint/max-comment-lines, zginlint/no-catch-unreachable,
-    \\       zginlint/no-std-log-warn, zginlint/no-anyopaque.
+\\       zginlint/no-std-log-warn.
     \\
     \\usage: zginlint [options] <path>...
     \\
@@ -22,12 +22,6 @@ pub const usage =
     \\options:
     \\  --max-comment-lines <n>   Ceiling on the lines of one comment block
     \\                            (zginlint/max-comment-lines, default 3).
-    \\  --no-anyopaque-paths <csv>
-    \\                            Comma-separated path prefixes where the token
-    \\                            is banned; unset means the rule is off
-    \\                            (zginlint/no-anyopaque).
-    \\  --no-anyopaque-allow <csv>
-    \\                            Comma-separated files exempt from that ban.
     \\  -h, --help                Print this text.
     \\
     \\exit: 0 clean, 1 findings, 2 usage or I/O error
@@ -37,27 +31,15 @@ pub const usage =
 pub const Args = struct {
     max_comment_lines: u32 = options_mod.defaults.max_comment_lines,
     /// Owned slice of entries borrowed from argv.
-    no_anyopaque_paths: []const []const u8 = &.{},
-    /// Owned slice of entries borrowed from argv.
-    no_anyopaque_allow: []const []const u8 = &.{},
-    /// Owned slice of entries borrowed from argv.
     paths: []const []const u8 = &.{},
 
     pub fn options(self: *const Args) options_mod.Options {
-        return .{
-            .max_comment_lines = self.max_comment_lines,
-            .no_anyopaque_paths = self.no_anyopaque_paths,
-            .no_anyopaque_allow = self.no_anyopaque_allow,
-        };
+        return .{ .max_comment_lines = self.max_comment_lines };
     }
 
     pub fn deinit(self: *Args, allocator: std.mem.Allocator) void {
         allocator.free(self.paths);
-        allocator.free(self.no_anyopaque_paths);
-        allocator.free(self.no_anyopaque_allow);
         self.paths = &.{};
-        self.no_anyopaque_paths = &.{};
-        self.no_anyopaque_allow = &.{};
     }
 };
 
@@ -82,10 +64,6 @@ pub fn parse(allocator: std.mem.Allocator, argv: []const []const u8) !Parsed {
     var args: Args = .{};
     var paths: std.ArrayList([]const u8) = .empty;
     defer paths.deinit(allocator);
-    var ban_paths: std.ArrayList([]const u8) = .empty;
-    defer ban_paths.deinit(allocator);
-    var ban_allow: std.ArrayList([]const u8) = .empty;
-    defer ban_allow.deinit(allocator);
 
     var index: usize = 0;
     while (index < argv.len) : (index += 1) {
@@ -101,28 +79,6 @@ pub fn parse(allocator: std.mem.Allocator, argv: []const []const u8) !Parsed {
             };
             continue;
         }
-        if (std.mem.eql(u8, argument, "--no-anyopaque-paths")) {
-            index += 1;
-            const value = valueAt(argv, index) orelse
-                return invalid(allocator, "--no-anyopaque-paths needs a comma-separated list of paths");
-            appendList(allocator, &ban_paths, value) catch |err| switch (err) {
-                error.ListEmpty => return invalid(allocator, "--no-anyopaque-paths wants at least one path"),
-                error.EntryEmpty => return invalid(allocator, "--no-anyopaque-paths has an empty entry, e.g. a doubled comma"),
-                error.OutOfMemory => return error.OutOfMemory,
-            };
-            continue;
-        }
-        if (std.mem.eql(u8, argument, "--no-anyopaque-allow")) {
-            index += 1;
-            const value = valueAt(argv, index) orelse
-                return invalid(allocator, "--no-anyopaque-allow needs a comma-separated list of files");
-            appendList(allocator, &ban_allow, value) catch |err| switch (err) {
-                error.ListEmpty => return invalid(allocator, "--no-anyopaque-allow wants at least one file"),
-                error.EntryEmpty => return invalid(allocator, "--no-anyopaque-allow has an empty entry, e.g. a doubled comma"),
-                error.OutOfMemory => return error.OutOfMemory,
-            };
-            continue;
-        }
         if (argument.len > 1 and argument[0] == '-') {
             const message = try std.fmt.allocPrint(allocator, "unknown option '{s}'", .{argument});
             return .{ .invalid = message };
@@ -132,10 +88,6 @@ pub fn parse(allocator: std.mem.Allocator, argv: []const []const u8) !Parsed {
 
     if (paths.items.len == 0) return invalid(allocator, "at least one path is required");
     args.paths = try paths.toOwnedSlice(allocator);
-    errdefer allocator.free(args.paths);
-    args.no_anyopaque_paths = try ban_paths.toOwnedSlice(allocator);
-    errdefer allocator.free(args.no_anyopaque_paths);
-    args.no_anyopaque_allow = try ban_allow.toOwnedSlice(allocator);
     return .{ .run = args };
 }
 
@@ -221,23 +173,6 @@ fn parseCeiling(value: []const u8) CeilingError!u32 {
     return parsed;
 }
 
-const ListError = error{ ListEmpty, EntryEmpty };
-
-/// Append one flag value's comma-separated entries, borrowed from the value
-/// itself so nothing here outlives argv.
-fn appendList(
-    allocator: std.mem.Allocator,
-    list: *std.ArrayList([]const u8),
-    value: []const u8,
-) (ListError || std.mem.Allocator.Error)!void {
-    if (value.len == 0) return error.ListEmpty;
-    var pieces = std.mem.splitScalar(u8, value, ',');
-    while (pieces.next()) |entry| {
-        if (entry.len == 0) return error.EntryEmpty;
-        try list.append(allocator, entry);
-    }
-}
-
 fn valueAt(argv: []const []const u8, index: usize) ?[]const u8 {
     if (index >= argv.len) return null;
     return argv[index];
@@ -272,13 +207,6 @@ fn bothRulesSource(allocator: std.mem.Allocator) ![]u8 {
     );
 }
 
-/// A source that carries the banned token once, built the same way: this
-/// file must not hold a literal copy of what the rule rejects.
-fn bannedTokenSource(allocator: std.mem.Allocator) ![]u8 {
-    const token = "any" ++ "opaque";
-    return std.fmt.allocPrint(allocator, "pub const Ctx = ?*{s};\n", .{token});
-}
-
 fn fixtureTree(tmp: *testing.TmpDir) !void {
     try tmp.dir.createDirPath(testing.io, "nested");
     try tmp.dir.writeFile(testing.io, .{
@@ -302,7 +230,6 @@ test "cli: --help prints usage and exits clean" {
     try testing.expectEqual(@as(u8, 0), result.code);
     try testing.expect(std.mem.indexOf(u8, result.out, "usage: zginlint") != null);
     try testing.expect(std.mem.indexOf(u8, result.out, "zginlint/no-catch-unreachable") != null);
-    try testing.expect(std.mem.indexOf(u8, result.out, "zginlint/no-anyopaque") != null);
 }
 
 test "cli: an unknown option is a usage error naming it" {
@@ -327,38 +254,6 @@ test "cli: a ceiling flag without a value is a usage error" {
     const result = try runCli(&.{"--max-comment-lines"}, &out_buffer, &err_buffer);
     try testing.expectEqual(@as(u8, 2), result.code);
     try testing.expect(std.mem.indexOf(u8, result.err, "needs a number") != null);
-}
-
-test "cli: a list flag without a value is a usage error" {
-    var out_buffer: [256]u8 = undefined;
-    var err_buffer: [4096]u8 = undefined;
-    const never = try runCli(&.{"--no-anyopaque-paths"}, &out_buffer, &err_buffer);
-    try testing.expectEqual(@as(u8, 2), never.code);
-    try testing.expect(std.mem.indexOf(u8, never.err, "needs a comma-separated list") != null);
-
-    const allow = try runCli(&.{"--no-anyopaque-allow"}, &out_buffer, &err_buffer);
-    try testing.expectEqual(@as(u8, 2), allow.code);
-    try testing.expect(std.mem.indexOf(u8, allow.err, "needs a comma-separated list") != null);
-}
-
-test "cli: an empty list value is a usage error" {
-    var out_buffer: [256]u8 = undefined;
-    var err_buffer: [4096]u8 = undefined;
-    const result = try runCli(&.{ "--no-anyopaque-paths", "", "src" }, &out_buffer, &err_buffer);
-    try testing.expectEqual(@as(u8, 2), result.code);
-    try testing.expect(std.mem.indexOf(u8, result.err, "wants at least one path") != null);
-
-    const allow = try runCli(&.{ "--no-anyopaque-allow", "", "src" }, &out_buffer, &err_buffer);
-    try testing.expectEqual(@as(u8, 2), allow.code);
-    try testing.expect(std.mem.indexOf(u8, allow.err, "wants at least one file") != null);
-}
-
-test "cli: a doubled comma in a list is a usage error" {
-    var out_buffer: [256]u8 = undefined;
-    var err_buffer: [4096]u8 = undefined;
-    const result = try runCli(&.{ "--no-anyopaque-paths", "src/core,,src/ui", "src" }, &out_buffer, &err_buffer);
-    try testing.expectEqual(@as(u8, 2), result.code);
-    try testing.expect(std.mem.indexOf(u8, result.err, "empty entry") != null);
 }
 
 test "cli: a ceiling that is not a number is a usage error" {
@@ -453,56 +348,4 @@ test "cli: the ceiling from the command line reaches the rule" {
 
     try testing.expectEqual(@as(u8, 1), result.code);
     try testing.expect(std.mem.indexOf(u8, result.out, "max is 1") != null);
-}
-
-test "cli: the banned token is silent until a path list is given" {
-    var tmp = testing.tmpDir(.{});
-    defer tmp.cleanup();
-    const source = try bannedTokenSource(testing.allocator);
-    defer testing.allocator.free(source);
-    try tmp.dir.writeFile(testing.io, .{ .sub_path = "core.zig", .data = source });
-    var path_buffer: [std.Io.Dir.max_path_bytes]u8 = undefined;
-    const root = try rootOf(&tmp, &path_buffer);
-
-    var out_buffer: [8192]u8 = undefined;
-    var err_buffer: [1024]u8 = undefined;
-    const off = try runCli(&.{root}, &out_buffer, &err_buffer);
-    try testing.expectEqual(@as(u8, 0), off.code);
-    try testing.expect(std.mem.indexOf(u8, off.out, "0 finding(s) in 0 file(s)") != null);
-
-    const on = try runCli(&.{ "--no-anyopaque-paths", root, root }, &out_buffer, &err_buffer);
-    try testing.expectEqual(@as(u8, 1), on.code);
-    try testing.expect(std.mem.indexOf(u8, on.out, "core.zig:1:19: error") != null);
-    try testing.expect(std.mem.indexOf(u8, on.out, "zginlint/no-anyopaque: 1") != null);
-}
-
-test "cli: an allow-listed file is skipped by the ban" {
-    var tmp = testing.tmpDir(.{});
-    defer tmp.cleanup();
-    try tmp.dir.createDirPath(testing.io, "core");
-    const source = try bannedTokenSource(testing.allocator);
-    defer testing.allocator.free(source);
-    try tmp.dir.writeFile(testing.io, .{ .sub_path = "core/erased.zig", .data = source });
-    var path_buffer: [std.Io.Dir.max_path_bytes]u8 = undefined;
-    const root = try rootOf(&tmp, &path_buffer);
-    const entry = try std.fmt.allocPrint(testing.allocator, "{s}/core", .{root});
-    defer testing.allocator.free(entry);
-    const exempt = try std.fmt.allocPrint(testing.allocator, "{s}/core/erased.zig", .{root});
-    defer testing.allocator.free(exempt);
-    const elsewhere = try std.fmt.allocPrint(testing.allocator, "{s}/core/other.zig", .{root});
-    defer testing.allocator.free(elsewhere);
-
-    var out_buffer: [8192]u8 = undefined;
-    var err_buffer: [1024]u8 = undefined;
-    const allowed = try runCli(&.{
-        "--no-anyopaque-paths", entry, "--no-anyopaque-allow", exempt, root,
-    }, &out_buffer, &err_buffer);
-    try testing.expectEqual(@as(u8, 0), allowed.code);
-    try testing.expect(std.mem.indexOf(u8, allowed.out, "0 finding(s) in 0 file(s)") != null);
-
-    const banned = try runCli(&.{
-        "--no-anyopaque-paths", entry, "--no-anyopaque-allow", elsewhere, root,
-    }, &out_buffer, &err_buffer);
-    try testing.expectEqual(@as(u8, 1), banned.code);
-    try testing.expect(std.mem.indexOf(u8, banned.out, "erased.zig:1:19: error") != null);
 }
