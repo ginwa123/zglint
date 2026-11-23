@@ -16,7 +16,7 @@ consumer, pinning it by URL + hash in `build.zig.zon`.
 ```bash
 zig build                                 # build zig-out/bin/zginlint
 zig-out/bin/zginlint src                  # report every finding, exit 1 if any
-zig-out/bin/zginlint --max-comment-lines 2 src
+zig-out/bin/zginlint --max-comment-lines 2 --max-file-lines 800 src
 zig build test                            # the linter's own unit tests
 zig build lint                            # the gate this repo's CI runs
 ```
@@ -57,6 +57,21 @@ A comment block may not exceed **3 lines** (`--max-comment-lines N`).
 - Comment markers inside a string or char literal, and inside a multi-line
   string fenced with `\\`, are text, not comments.
 - Block comments nest, and `/* ... */` counts by the lines it spans.
+
+### `zginlint/max-file-lines`
+
+One file may not carry more than **2000 code lines** (`--max-file-lines N`).
+
+- A **code line** is a line with content that is not part of a comment. Blank
+  lines and comment lines do not count, and neither does a block comment that
+  spans several lines.
+- A trailing comment after code (`const x = 1; // note`) is a code line: the
+  line carries code.
+- The finding is reported once per file, at the first line past the ceiling:
+  `src/a.zig:2001:1: error File has 4321 code lines; max is 2000
+  (zginlint/max-file-lines)`.
+- A file whose length comes from comments or blank lines is not over the
+  ceiling; a file that grows past it is a file that should be split.
 
 ### `zginlint/no-catch-unreachable`
 
@@ -149,6 +164,7 @@ commit message or this README — not in a suppression comment.
 |---|---|
 | `src/comment_scan.zig` | the lexer: source bytes in, comment lines and blocks out |
 | `src/rules/max_comment_lines.zig` | the comment-block ceiling |
+| `src/rules/max_file_lines.zig` | the code-lines-per-file ceiling |
 | `src/rules/no_catch_unreachable.zig` | the banned error-handling pair |
 | `src/rules/no_std_debug_print.zig` | the raw print `std.debug` in production code |
 | `src/diagnostic.zig` | a finding and the message its rule wrote |

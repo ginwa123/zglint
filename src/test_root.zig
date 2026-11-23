@@ -9,6 +9,7 @@ test {
     _ = @import("options.zig");
     _ = @import("rule.zig");
     _ = @import("rules/max_comment_lines.zig");
+    _ = @import("rules/max_file_lines.zig");
     _ = @import("rules/no_catch_unreachable.zig");
     _ = @import("rules/no_std_log_warn.zig");
     _ = @import("rules/no_std_debug_print.zig");
