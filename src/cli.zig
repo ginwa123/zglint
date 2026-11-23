@@ -12,7 +12,8 @@ pub const exit_usage: u8 = 2;
 
 pub const usage =
     \\zginlint — a linter for Zig source.
-    \\Rules: zginlint/max-comment-lines, zginlint/no-catch-unreachable,
+    \\Rules: zginlint/max-comment-lines, zginlint/max-file-lines,
+\\       zginlint/no-catch-unreachable,
 \\       zginlint/no-std-log-warn.
     \\
     \\usage: zginlint [options] <path>...
@@ -22,6 +23,8 @@ pub const usage =
     \\options:
     \\  --max-comment-lines <n>   Ceiling on the lines of one comment block
     \\                            (zginlint/max-comment-lines, default 3).
+    \\  --max-file-lines <n>      Ceiling on the code lines of one file
+    \\                            (zginlint/max-file-lines, default 2000).
     \\  -h, --help                Print this text.
     \\
     \\exit: 0 clean, 1 findings, 2 usage or I/O error
@@ -30,11 +33,15 @@ pub const usage =
 
 pub const Args = struct {
     max_comment_lines: u32 = options_mod.defaults.max_comment_lines,
+    max_file_lines: u32 = options_mod.defaults.max_file_lines,
     /// Owned slice of entries borrowed from argv.
     paths: []const []const u8 = &.{},
 
     pub fn options(self: *const Args) options_mod.Options {
-        return .{ .max_comment_lines = self.max_comment_lines };
+        return .{
+            .max_comment_lines = self.max_comment_lines,
+            .max_file_lines = self.max_file_lines,
+        };
     }
 
     pub fn deinit(self: *Args, allocator: std.mem.Allocator) void {
@@ -76,6 +83,16 @@ pub fn parse(allocator: std.mem.Allocator, argv: []const []const u8) !Parsed {
             args.max_comment_lines = parseCeiling(value) catch |err| switch (err) {
                 error.InvalidNumber => return invalid(allocator, "--max-comment-lines wants a number"),
                 error.NotPositive => return invalid(allocator, "--max-comment-lines wants a number of at least 1"),
+            };
+            continue;
+        }
+        if (std.mem.eql(u8, argument, "--max-file-lines")) {
+            index += 1;
+            const value = valueAt(argv, index) orelse
+                return invalid(allocator, "--max-file-lines needs a number");
+            args.max_file_lines = parseCeiling(value) catch |err| switch (err) {
+                error.InvalidNumber => return invalid(allocator, "--max-file-lines wants a number"),
+                error.NotPositive => return invalid(allocator, "--max-file-lines wants a number of at least 1"),
             };
             continue;
         }
@@ -348,4 +365,32 @@ test "cli: the ceiling from the command line reaches the rule" {
 
     try testing.expectEqual(@as(u8, 1), result.code);
     try testing.expect(std.mem.indexOf(u8, result.out, "max is 1") != null);
+}
+
+test "cli: the file ceiling is reported with its rule id" {
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    try tmp.dir.writeFile(testing.io, .{
+        .sub_path = "wide.zig",
+        .data = "const a = 1;\nconst b = 2;\nconst c = 3;\n",
+    });
+    var path_buffer: [std.Io.Dir.max_path_bytes]u8 = undefined;
+    const root = try rootOf(&tmp, &path_buffer);
+
+    var out_buffer: [4096]u8 = undefined;
+    var err_buffer: [256]u8 = undefined;
+    const result = try runCli(&.{ "--max-file-lines", "2", root }, &out_buffer, &err_buffer);
+
+    try testing.expectEqual(@as(u8, 1), result.code);
+    try testing.expect(std.mem.indexOf(u8, result.out, "wide.zig:3:1") != null);
+    try testing.expect(std.mem.indexOf(u8, result.out, "File has 3 code lines; max is 2") != null);
+    try testing.expect(std.mem.indexOf(u8, result.out, "zginlint/max-file-lines") != null);
+}
+
+test "cli: a file ceiling that is not a number is a usage error" {
+    var out_buffer: [256]u8 = undefined;
+    var err_buffer: [4096]u8 = undefined;
+    const result = try runCli(&.{ "--max-file-lines", "many", "src" }, &out_buffer, &err_buffer);
+    try testing.expectEqual(@as(u8, 2), result.code);
+    try testing.expect(std.mem.indexOf(u8, result.err, "--max-file-lines wants a number") != null);
 }

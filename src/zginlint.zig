@@ -9,8 +9,10 @@ const io_util = @import("io_util.zig");
 const options_mod = @import("options.zig");
 const rule = @import("rule.zig");
 const max_comment_lines = @import("rules/max_comment_lines.zig");
+const max_file_lines = @import("rules/max_file_lines.zig");
 const no_catch_unreachable = @import("rules/no_catch_unreachable.zig");
 const no_std_log_warn = @import("rules/no_std_log_warn.zig");
+const no_std_debug_print = @import("rules/no_std_debug_print.zig");
 
 pub const Diagnostic = diagnostic.Diagnostic;
 pub const Options = options_mod.Options;
@@ -19,8 +21,10 @@ pub const defaults = options_mod.defaults;
 /// Every rule this linter runs, in report order.
 pub const rules = [_]rule.Rule{
     max_comment_lines.declaration,
+    max_file_lines.declaration,
     no_catch_unreachable.declaration,
     no_std_log_warn.declaration,
+    no_std_debug_print.declaration,
 };
 
 /// Every diagnostic a single file produced, with the path it came from.
@@ -391,8 +395,10 @@ test "zginlint: fingerprints cover every rule and carry their options" {
     try testing.expectEqual(rules.len, prints.len);
     try testing.expectEqualStrings("zginlint/max-comment-lines", prints[0].rule_id);
     try testing.expectEqualStrings("max=2", prints[0].text);
-    try testing.expectEqualStrings("zginlint/no-catch-unreachable", prints[1].rule_id);
-    try testing.expectEqualStrings(rule.no_options, prints[1].text);
+    try testing.expectEqualStrings("zginlint/max-file-lines", prints[1].rule_id);
+    try testing.expectEqualStrings("max=2000", prints[1].text);
+    try testing.expectEqualStrings("zginlint/no-catch-unreachable", prints[2].rule_id);
+    try testing.expectEqualStrings(rule.no_options, prints[2].text);
 }
 
 test "zginlint: comment_scan is reachable from the library root" {
